@@ -166,7 +166,7 @@ def main():
             
             # Remove excluded documents
             for doc_id in excluded_ids:
-                if doc_id in id_score_dict:
+                if doc_id in id_score_dict and doc_id != "N/A":
                     id_score_dict.pop(doc_id)
             
             # Sort documents by score and get top-k

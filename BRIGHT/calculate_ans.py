@@ -16,17 +16,48 @@ def convert_results(results_list):
       },
       ...
     }
+    
+    Uses confidence_score for ranking if available, otherwise falls back to binary relevance.
     """
     ideal_scores = {}
     for entry in results_list:
         qid = entry["query_id"]
         doc_id = entry["doc_id"]
-        # Force conversion to float
-        score = float(entry["relevance"])
+        
+        # First try to use confidence_score (continuous value between 0 and 1)
+        if "confidence_score" in entry and entry["confidence_score"] is not None:
+            score = float(entry["confidence_score"])
+        # Otherwise fall back to relevance (0 or 1)
+        elif entry["relevance"] is not None:
+            score = float(entry["relevance"])
+        # Handle null relevance values
+        else:
+            score = 0.0  # Treat null as not relevant
+            
         if qid not in ideal_scores:
             ideal_scores[qid] = {}
         ideal_scores[qid][doc_id] = score
     return ideal_scores
+
+def calculate_gold_document_recall(results_list):
+    """
+    Calculate the recall for gold documents, i.e., the percentage of gold documents 
+    that were correctly identified as relevant.
+    
+    Returns:
+    - correct_gold: int - number of gold documents correctly marked as relevant
+    - total_gold: int - total number of gold documents
+    - recall: float - recall percentage
+    """
+    correct_gold = sum(1 for entry in results_list if entry["is_gold"] and entry.get("relevance") == 1)
+    total_gold = sum(1 for entry in results_list if entry["is_gold"])
+    recall = (correct_gold / total_gold) * 100 if total_gold > 0 else 0
+    
+    return {
+        "correct_gold": correct_gold,
+        "total_gold": total_gold,
+        "gold_document_recall": recall
+    }
 
 def generate_ground_truth(task, long_context, gt_filename):
     """
@@ -44,7 +75,8 @@ def generate_ground_truth(task, long_context, gt_filename):
         ground_truth[qid] = {gid: 1 for gid in e[key]}
         # Optionally, mark excluded docs as 0 if provided.
         for did in e.get("excluded_ids", []):
-            ground_truth[qid][did] = 0
+            if did != "N/A":  # Skip placeholder values
+                ground_truth[qid][did] = 0
     # Save the generated ground truth file
     with open(gt_filename, "w") as f:
         json.dump(ground_truth, f, indent=2)
@@ -65,11 +97,32 @@ def main():
                         help="Flag indicating whether to use the long-context ground truth (gold_ids_long).")
     parser.add_argument("--converted_output", type=str, default="converted_results.json",
                         help="File to save the converted nested dictionary results.")
+    parser.add_argument("--output_metrics", type=str, default="evaluation_metrics.json",
+                        help="File to save the evaluation metrics.")
     args = parser.parse_args()
     
     # Load the list-based results
     with open(args.results_file, "r") as f:
         results_list = json.load(f)
+    
+    # Print statistics about the results
+    null_count = sum(1 for entry in results_list if entry["relevance"] is None)
+    total_count = len(results_list)
+    print(f"Found {null_count} out of {total_count} entries with null relevance ({null_count/total_count*100:.2f}%)")
+    
+    # Check if we have confidence scores
+    has_confidence = any("confidence_score" in entry for entry in results_list)
+    if has_confidence:
+        print("Using confidence scores for ranking")
+        # Calculate statistics on confidence scores
+        avg_confidence = sum(entry.get("confidence_score", 0) for entry in results_list) / total_count
+        print(f"Average confidence score: {avg_confidence:.4f}")
+    else:
+        print("No confidence scores found, using binary relevance for ranking")
+    
+    # Calculate gold document recall
+    gold_recall_metrics = calculate_gold_document_recall(results_list)
+    print(f"Gold document recall: {gold_recall_metrics['correct_gold']}/{gold_recall_metrics['total_gold']} ({gold_recall_metrics['gold_document_recall']:.2f}%)")
     
     # Convert to nested dictionary format
     converted_results = convert_results(results_list)
@@ -93,10 +146,47 @@ def main():
             converted_results[qid] = {}
     
     # Run the evaluation using the calculate_retrieval_metrics function.
-    metrics = calculate_retrieval_metrics(results=converted_results, qrels=ground_truth)
+    standard_metrics = calculate_retrieval_metrics(results=converted_results, qrels=ground_truth)
+    
+    # Combine all metrics
+    all_metrics = {**standard_metrics, **gold_recall_metrics}
+    
+    # Save all metrics to file
+    if args.output_metrics:
+        with open(args.output_metrics, "w") as f:
+            json.dump(all_metrics, f, indent=2)
+        print(f"Metrics saved to {args.output_metrics}")
     
     print("Evaluation Metrics:")
-    print(json.dumps(metrics, indent=2))
+    print(json.dumps(standard_metrics, indent=2))
+    
+    # Print additional gold document stats
+    if gold_recall_metrics["total_gold"] > 0:
+        null_gold = sum(1 for entry in results_list if entry["is_gold"] and entry["relevance"] is None)
+        if null_gold > 0:
+            print(f"WARNING: {null_gold} gold documents have null relevance judgments")
+
+    # Print top-k correctness for various k values
+    for k in [1, 5, 10, 25, 50, 100]:
+        top_k_total = 0
+        top_k_correct = 0
+        
+        for qid in ground_truth:
+            if qid not in converted_results:
+                continue
+                
+            # Sort documents by score for this query
+            sorted_docs = sorted(converted_results[qid].items(), key=lambda x: x[1], reverse=True)[:k]
+            
+            # Count how many are actually relevant according to ground truth
+            for doc_id, _ in sorted_docs:
+                if doc_id in ground_truth[qid] and ground_truth[qid][doc_id] == 1:
+                    top_k_correct += 1
+                top_k_total += 1
+                
+        if top_k_total > 0:
+            precision = top_k_correct / top_k_total
+            print(f"Top-{k} precision: {precision:.4f} ({top_k_correct}/{top_k_total})")
 
 if __name__ == "__main__":
     main()
