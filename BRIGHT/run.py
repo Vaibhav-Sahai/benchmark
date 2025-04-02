@@ -2,10 +2,14 @@ import os
 import argparse
 import json
 from tqdm import tqdm
+import multiprocessing as mp
+mp.set_start_method('spawn', force=True)
 from retrievers import RETRIEVAL_FUNCS,calculate_retrieval_metrics
 from datasets import load_dataset
 
+
 if __name__=='__main__':
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, required=True,
                         choices=['biology','earth_science','economics','pony','psychology','robotics',

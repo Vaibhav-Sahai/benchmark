@@ -199,7 +199,6 @@ def retrieval_sf_qwen_e5(queries,query_ids,documents,doc_ids,task,model_id,instr
     scores = scores.tolist()
     return get_scores(query_ids=query_ids,doc_ids=doc_ids,scores=scores,excluded_ids=excluded_ids)
 
-
 def retrieval_bm25(queries,query_ids,documents,doc_ids,excluded_ids,long_context,**kwargs):
     from pyserini import analysis
     from gensim.corpora import Dictionary

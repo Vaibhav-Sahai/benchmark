@@ -9,6 +9,7 @@ LOG_FILE="run_all_tasks_$(date +%Y%m%d_%H%M%S).log"  # Create a timestamped log 
 
 # Define all tasks
 TASKS=(
+    "biology"
     "earth_science"
     "economics"
     "pony"
