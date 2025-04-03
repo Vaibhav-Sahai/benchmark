@@ -38,7 +38,7 @@ fi
 
 # Step 2: Run vLLM generation
 echo "Running vLLM generation for $TASK..."
-CUDA_VISIBLE_DEVICES=0,1 python vllm_generation.py \
+python vllm_generation.py \
     --input "$INPUTS_FILE" \
     --output "json/$TASK/vllm_results${FT_SUFFIX}.json" \
     --model "$MODEL" \
