@@ -6,3 +6,6 @@ cache
 *.jsonl
 vllm_results.json
 vllm_results-ft.json
+checkpoint-ft.json
+checkpoint.json
+ground_truth.json
